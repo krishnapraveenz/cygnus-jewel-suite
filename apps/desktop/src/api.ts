@@ -1779,6 +1779,15 @@ export interface JournalRow { entry_id: number; date: string; narration: string 
 export const journalReport = (from: string, to: string) => req<{ rows: JournalRow[] }>("GET", `/accounts/journal?from=${from}&to=${to}`);
 export interface ReceiptRow { id: number; date: string; party: string; amount: string; mode: string; note: string | null }
 export const listReceipts = () => req<ReceiptRow[]>("GET", "/accounts/receipts");
+
+export interface CreditNoteDetail {
+  id: number; document_no: string | null; created_at: string; original_invoice_no: string | null;
+  customer_name: string | null; reason: string | null; reason_detail: string | null;
+  subtotal: string; tax_total: string; total: string; fy: string;
+  refund_mode: string | null; deduction: string; net_refund: string;
+  lines: { description: string; taxable_value: string; line_total: string }[];
+}
+export const getCreditNote = (id: number) => req<CreditNoteDetail>("GET", `/credit-notes/${id}`);
 export const createReceipt = (b: { party_id: number; receipt_date: string; amount: string; mode?: string; reference?: string; note?: string }) =>
   req<{ id: number }>("POST", "/accounts/receipts", b);
 

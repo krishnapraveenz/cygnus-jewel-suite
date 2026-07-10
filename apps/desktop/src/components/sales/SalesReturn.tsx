@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RotateCcw, CheckCircle2, AlertTriangle, Coins, Wallet, PiggyBank } from "lucide-react";
+import { RotateCcw, CheckCircle2, AlertTriangle, Coins, Wallet, PiggyBank, Printer } from "lucide-react";
 import * as api from "@/api";
 import type { InvoiceListRow, InvoiceDetail } from "@/api";
 import { Card } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CreditNotePrint, AdvanceReceipt } from "./CreditNotePrint";
 import { formatDate, formatINR } from "@/lib/utils";
 
 const REASONS = ["Manufacturing defect", "Not satisfied", "Wrong item", "Size / resize", "Other"];
@@ -25,6 +26,8 @@ export function SalesReturn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<api.ReturnResult | null>(null);
+  const [printCnId, setPrintCnId] = useState<number | null>(null);
+  const [showAdvReceipt, setShowAdvReceipt] = useState(false);
 
   async function load() {
     try {
@@ -240,6 +243,16 @@ export function SalesReturn() {
               {result.old_gold_physical && <div>Old gold piece returned to customer</div>}
               {Number(result.old_gold_cash) > 0 && <div>Old gold cash-rate value: {formatINR(result.old_gold_cash)}</div>}
             </div>
+            <div className="flex items-center gap-2 pt-1 no-print">
+              <Button size="sm" variant="outline" onClick={() => setPrintCnId(result.credit_note_id)}>
+                <Printer className="w-3.5 h-3.5 mr-1" /> Print credit note
+              </Button>
+              {result.settlement_mode === "store_credit" && (
+                <Button size="sm" variant="outline" onClick={() => setShowAdvReceipt(true)}>
+                  <Printer className="w-3.5 h-3.5 mr-1" /> Print store credit receipt
+                </Button>
+              )}
+            </div>
           </div>
         )}
         {error && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>}
@@ -274,6 +287,17 @@ export function SalesReturn() {
             </tbody>
           </table>
         </Card>
+      )}
+
+      {/* Print modals */}
+      {printCnId && <CreditNotePrint creditNoteId={printCnId} onClose={() => setPrintCnId(null)} />}
+      {showAdvReceipt && result && (
+        <AdvanceReceipt
+          amount={result.monetary_settlement}
+          customerName={detail?.customer_name || ""}
+          creditNoteNo={result.document_no}
+          onClose={() => setShowAdvReceipt(false)}
+        />
       )}
     </div>
   );

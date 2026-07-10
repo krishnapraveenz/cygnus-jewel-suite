@@ -290,6 +290,7 @@ fn build_router(state: AppState) -> Router {
         .route("/estimates/:id/convert", post(convert_estimate))
         .route("/settings", get(list_settings).post(upsert_setting))
         .route("/books/lock", post(set_books_lock))
+        .route("/credit-notes/:id", get(get_credit_note))
         .route("/backup", post(create_backup))
         .route("/restore", post(restore_backup))
         .route("/old-gold", get(list_old_gold))
@@ -6388,6 +6389,47 @@ async fn set_books_lock(
         .map_err(internal)?;
     }
     Ok(Json(json!({ "lock_date": lock })))
+}
+
+/// GET /credit-notes/:id — full credit note data for printing.
+async fn get_credit_note(State(s): State<AppState>, _auth: AuthUser, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
+    let cn: Option<(i64, Option<String>, String, Option<String>, Decimal, Decimal, Decimal, String, Option<String>, Option<String>, Decimal, Decimal)> = sqlx::query_as(
+        "SELECT cn.original_invoice_id, cn.document_no, cn.created_at::text, cn.reason, \
+            cn.subtotal, cn.tax_total, cn.total, cn.fy, cn.refund_mode, cn.reason_detail, \
+            COALESCE(cn.deduction, 0), COALESCE(cn.net_refund, cn.total) \
+         FROM credit_note cn WHERE cn.id = $1")
+        .bind(id).fetch_optional(&s.db).await.map_err(internal)?;
+    let cn = cn.ok_or((StatusCode::NOT_FOUND, format!("credit note {id} not found")))?;
+
+    let inv_no: Option<String> = sqlx::query_scalar("SELECT document_no FROM invoice WHERE id = $1")
+        .bind(cn.0).fetch_optional(&s.db).await.map_err(internal)?;
+    let cust_name: Option<String> = sqlx::query_scalar(
+        "SELECT c.name FROM customer c JOIN invoice i ON i.customer_id = c.id WHERE i.id = $1")
+        .bind(cn.0).fetch_optional(&s.db).await.map_err(internal)?;
+
+    let lines: Vec<(String, Decimal, Decimal)> = sqlx::query_as(
+        "SELECT description, taxable_value, line_total FROM credit_note_line WHERE credit_note_id = $1 ORDER BY id")
+        .bind(id).fetch_all(&s.db).await.map_err(internal)?;
+
+    Ok(Json(json!({
+        "id": id,
+        "document_no": cn.1,
+        "created_at": cn.2,
+        "original_invoice_no": inv_no,
+        "customer_name": cust_name,
+        "reason": cn.3,
+        "reason_detail": cn.9,
+        "subtotal": cn.4.to_string(),
+        "tax_total": cn.5.to_string(),
+        "total": cn.6.to_string(),
+        "fy": cn.7,
+        "refund_mode": cn.8,
+        "deduction": cn.10.to_string(),
+        "net_refund": cn.11.to_string(),
+        "lines": lines.iter().map(|(desc, tax, total)| json!({
+            "description": desc, "taxable_value": tax.to_string(), "line_total": total.to_string()
+        })).collect::<Vec<_>>(),
+    })))
 }
 
 // ===================== Backup & Restore (.cjs format) =====================
