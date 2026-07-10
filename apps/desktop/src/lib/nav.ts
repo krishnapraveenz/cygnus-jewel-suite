@@ -12,6 +12,7 @@ import {
   Gem,
   Recycle,
   Scissors,
+  ScanBarcode,
   Tag,
   Hammer,
   Users,
@@ -33,6 +34,7 @@ export type Page =
   | "sale"
   | "old_gold"
   | "stock"
+  | "barcoding"
   | "tagging"
   | "metal_account"
   | "rate_cutting"
@@ -92,6 +94,7 @@ export const navGroups: { group: string; items: NavItem[] }[] = [
     group: "Inventory",
     items: [
       { id: "stock", label: "Stock", icon: Package },
+      { id: "barcoding", label: "Barcoding", icon: ScanBarcode },
       { id: "loose_stones", label: "Loose Stones", icon: Gem },
       { id: "resale", label: "Resale (Used)", icon: Recycle },
     ],
@@ -149,6 +152,7 @@ export const pageTitle: Record<Page, string> = {
   loose_stones: "Loose Stones",
   resale: "Resale (Used)",
   stock: "Stock",
+  barcoding: "Barcoding",
   tagging: "Tagging",
   parties: "Parties",
   purchases: "Purchases",
@@ -179,6 +183,7 @@ export const livePages: Set<Page> = new Set([
   "loose_stones",
   "resale",
   "stock",
+  "barcoding",
   "tagging",
   "parties",
   "purchases",

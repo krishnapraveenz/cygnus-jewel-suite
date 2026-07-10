@@ -14,6 +14,7 @@ import { LoginScreen } from "@/components/auth/LoginScreen";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 import { SalesLayout } from "@/components/sales/SalesLayout";
 import { StockList } from "@/components/inventory/StockList";
+import { Barcoding } from "@/components/inventory/Barcoding";
 import { ChequeRegister } from "@/components/banking/ChequeRegister";
 import { DailyRates } from "@/components/rates/DailyRates";
 import { Advances } from "@/components/advances/Advances";
@@ -168,6 +169,8 @@ function PageBody({ page }: { page: Page }) {
       return <SalesLayout />;
     case "stock":
       return <StockList />;
+    case "barcoding":
+      return <Barcoding />;
     case "tagging":
       return <Tagging />;
     case "cheques":
