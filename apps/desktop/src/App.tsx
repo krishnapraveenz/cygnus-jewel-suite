@@ -150,7 +150,7 @@ function Shell({ role, onLogout }: { role: string; onLogout: () => void }) {
           onLogout={handleLogout}
           goSettings={() => setPage("settings")}
         />
-        <main className="flex-1 overflow-y-auto p-5 bg-muted/15">
+        <main className="flex-1 overflow-y-auto p-6">
           <PageBody page={page} />
         </main>
         <StatusBar role={role} base={api.getBase()} online={online} clients={clients} />
