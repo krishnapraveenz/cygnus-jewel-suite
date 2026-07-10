@@ -1,0 +1,229 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0a0a0a;
+  --color-primary: #005fb8;
+  --color-primary-hover: #004c95;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f0f0f0;
+  --color-secondary-foreground: #0a0a0a;
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #717171;
+  --color-accent: #e8e8e8;
+  --color-accent-foreground: #0a0a0a;
+  --color-destructive: #c42b1c;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #0f7b0f;
+  --color-success-foreground: #ffffff;
+  --color-warning: #9d5d00;
+  --color-warning-foreground: #ffffff;
+  /* Gold accent — used sparingly for the jewellery brand mark/rate ticker */
+  --color-gold: #b8860b;
+  --color-gold-soft: #f3e6c4;
+  --color-border: #e0e0e0;
+  --color-ring: #005fb8;
+  --color-input: #e0e0e0;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ===== Dark mode overrides ===== */
+@layer base {
+  .dark {
+    --color-background: #0a0a0a;
+    --color-foreground: #fafafa;
+    --color-card: #141414;
+    --color-card-foreground: #fafafa;
+    --color-popover: #141414;
+    --color-popover-foreground: #fafafa;
+    --color-primary: #3b8fe0;
+    --color-primary-hover: #5ba3e6;
+    --color-primary-foreground: #ffffff;
+    --color-secondary: #1e1e1e;
+    --color-secondary-foreground: #fafafa;
+    --color-muted: #1a1a1a;
+    --color-muted-foreground: #a1a1a1;
+    --color-accent: #1e1e1e;
+    --color-accent-foreground: #fafafa;
+    --color-destructive: #e54d42;
+    --color-destructive-foreground: #ffffff;
+    --color-success: #22a522;
+    --color-success-foreground: #ffffff;
+    --color-warning: #c07600;
+    --color-warning-foreground: #ffffff;
+    --color-gold: #d4a82a;
+    --color-gold-soft: #2a2410;
+    --color-border: #2a2a2a;
+    --color-ring: #3b8fe0;
+    --color-input: #2a2a2a;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-sm antialiased;
+    margin: 0;
+  }
+}
+
+/* Scrollbar styling — Windows-like */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* Fix native select dropdown in dark mode */
+.dark select option {
+  background-color: #141414;
+  color: #fafafa;
+}
+.dark select {
+  color-scheme: dark;
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+}
+
+/* ---- A4 print framework ----
+   .a4-sheet  → on-screen preview sized to a real A4 page (210mm wide).
+   .print-area → the only content shown when printing; laid out for A4 with clean
+   page breaks, repeating table headers, and rows that never split across pages. */
+.a4-sheet {
+  width: var(--page-w, 210mm);
+  max-width: 95vw;
+  margin: 0 auto;
+}
+
+/* A single A4 page: fills the full sheet height and lays out as a column so a
+   footer with `mt-auto` is pushed to the bottom of the page (content no longer
+   bunches at the top). */
+.a4-page {
+  box-sizing: border-box;
+  min-height: var(--page-h, 297mm);
+  padding: var(--page-pad, 14mm);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Content scale + base font are driven by the saved print profile. */
+.print-area {
+  font-size: var(--print-font, 12px);
+  zoom: var(--print-scale, 1);
+}
+
+/* Settings live-preview: draw the printable-area boundary (dashed) inside the margins. */
+.print-guide .a4-sheet {
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+.print-guide .a4-page {
+  outline: 1.5px dashed #2563eb;
+  outline-offset: calc(-1 * var(--page-pad, 10mm));
+  background: #fff;
+}
+/* When more than one page is shown, render them as distinct sheets with a gutter. */
+.print-guide .a4-page + .a4-page {
+  margin-top: 8mm;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.18);
+}
+
+@media print {
+  @page {
+    size: 210mm 297mm; /* A4 */
+    margin: 10mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    height: auto !important;
+  }
+  /* The whole app lives in #root; the print document is portalled to <body>.
+     Hide the app entirely so only the invoice prints — no reserved height,
+     no blank trailing page. */
+  #root {
+    display: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* Collapse the modal overlay to plain flow so the sheet starts at the page origin. */
+  .print-root {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+  }
+  .a4-sheet {
+    position: static !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+  .print-area {
+    width: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    font-size: var(--print-font, 11px);
+    zoom: var(--print-scale, 1);
+    color: #000;
+  }
+  /* Page-fill height kept safely within the printable area of BOTH A4 (277mm)
+     and US-Letter (~259mm) at 10mm margins, so the footer reaches the bottom
+     without ever spilling onto an extra page. Driven by the print profile. */
+  .a4-page {
+    min-height: var(--print-fill, 248mm);
+    padding: 0 !important;
+  }
+  /* Clean pagination on long documents */
+  table {
+    page-break-inside: auto;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+  tr,
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+  .page-break-before {
+    page-break-before: always;
+  }
+}

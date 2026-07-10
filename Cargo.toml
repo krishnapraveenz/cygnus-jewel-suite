@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["crates/core-engine", "crates/backend"]
+exclude = ["apps/desktop/src-tauri"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+rust-version = "1.80"

@@ -1,0 +1,13 @@
+[package]
+name = "core-engine"
+version = "0.1.0"
+edition.workspace = true
+description = "Cygnus Jewel Suite — shared valuation/conversion/tax engine (fixed-point decimal)"
+
+[dependencies]
+rust_decimal = { version = "1", features = ["serde-str"] }
+rust_decimal_macros = "1"
+serde = { version = "1", features = ["derive"] }
+
+[lints.rust]
+unsafe_code = "forbid"
