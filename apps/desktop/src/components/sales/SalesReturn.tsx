@@ -48,6 +48,11 @@ export function SalesReturn() {
     [invoices, search]
   );
 
+  const returned = useMemo(
+    () => invoices.filter((i) => i.status === "returned" || i.status === "partially_returned"),
+    [invoices]
+  );
+
   async function pick(id: number) {
     setError(null);
     setResult(null);
@@ -239,6 +244,37 @@ export function SalesReturn() {
         )}
         {error && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>}
       </Card>
+
+      {/* Recent returns (returned invoices) */}
+      {returned.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border text-sm font-medium">Recent returns / Credit notes</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border text-xs">
+                <th className="text-left px-3 py-2">Invoice</th>
+                <th className="text-left px-3 py-2">Customer</th>
+                <th className="text-left px-3 py-2">Date</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-center px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {returned.map((r) => (
+                <tr key={r.id} className="border-b border-border/50 hover:bg-accent/50">
+                  <td className="px-3 py-1.5 font-mono text-xs">{r.document_no}</td>
+                  <td className="px-3 py-1.5 text-xs">{r.customer_name || "Walk-in"}</td>
+                  <td className="px-3 py-1.5 text-xs text-muted-foreground">{formatDate(r.created_at)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{formatINR(r.grand_total)}</td>
+                  <td className="px-3 py-1.5 text-center">
+                    <Badge variant="destructive">{r.status.replace(/_/g, " ")}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
     </div>
   );
 }
