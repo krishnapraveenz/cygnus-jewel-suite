@@ -74,39 +74,87 @@ function CategoriesTab({ onErr }: { onErr: (e: string | null) => void }) {
       <Card className="p-4">
         <div className="flex items-end gap-3">
           <div className="flex-1 max-w-xs">
-            <div className="text-xs text-muted-foreground mb-1">New ornament category</div>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Toe Ring" />
+            <div className="text-xs text-muted-foreground mb-1">New product / ornament category</div>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Necklace, Ring, Bangle, Chain" />
           </div>
           <Button onClick={add} disabled={busy}>
             <Plus className="w-4 h-4 mr-1" /> Add
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mt-2">Manage your product types / ornament categories. These group items on purchase and stock screens — e.g. Necklace, Ring, Bangle, Earring, Chain, Pendant, Bracelet, Toe Ring.</p>
       </Card>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left px-4 py-2 font-medium text-muted-foreground">Category</th>
+              <th className="text-left px-4 py-2 font-medium text-muted-foreground">Category (product type)</th>
               <th className="text-center px-4 py-2 font-medium text-muted-foreground">Active</th>
+              <th className="text-right px-4 py-2 font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {cats.map((c) => (
-              <tr key={c.id} className="border-b border-border last:border-0">
-                <td className="px-4 py-1.5">{c.name}</td>
-                <td className="px-4 py-1.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={c.active}
-                    onChange={(e) => api.updateItemCategory(c.id, { active: e.target.checked }).then(load)}
-                  />
-                </td>
-              </tr>
+              <CategoryRow key={c.id} cat={c} onReload={load} onErr={onErr} />
             ))}
+            {cats.length === 0 && (
+              <tr><td colSpan={3} className="px-4 py-6 text-center text-muted-foreground text-sm">No categories. Add some above.</td></tr>
+            )}
           </tbody>
         </table>
       </Card>
     </div>
+  );
+}
+
+function CategoryRow({ cat: c, onReload, onErr }: { cat: import("@/api").ItemCategory; onReload: () => Promise<void>; onErr: (e: string | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(c.name);
+  const [busy, setBusy] = useState(false);
+
+  async function saveName() {
+    if (!editName.trim() || editName.trim() === c.name) { setEditing(false); return; }
+    setBusy(true); onErr(null);
+    try {
+      await api.updateItemCategory(c.id, { name: editName.trim() });
+      setEditing(false);
+      await onReload();
+    } catch (e) { onErr(String(e instanceof Error ? e.message : e)); }
+    finally { setBusy(false); }
+  }
+
+  async function del() {
+    if (!window.confirm(`Delete "${c.name}"? This only works if no items use it.`)) return;
+    setBusy(true); onErr(null);
+    try {
+      await api.deleteItemCategory(c.id);
+      await onReload();
+    } catch (e) { onErr(String(e instanceof Error ? e.message : e)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="px-4 py-1.5">
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <Input className="h-7 w-48" value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveName()} autoFocus />
+            <Button variant="outline" size="sm" onClick={saveName} disabled={busy}>Save</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setEditName(c.name); }}>Cancel</Button>
+          </div>
+        ) : (
+          <span className="cursor-pointer hover:text-primary" onClick={() => setEditing(true)} title="Click to rename">{c.name}</span>
+        )}
+      </td>
+      <td className="px-4 py-1.5 text-center">
+        <input type="checkbox" checked={c.active} onChange={(e) => api.updateItemCategory(c.id, { active: e.target.checked }).then(onReload)} />
+      </td>
+      <td className="px-4 py-1.5 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <button onClick={() => setEditing(true)} className="text-xs text-muted-foreground hover:text-primary px-1">Edit</button>
+          <button onClick={del} className="text-xs text-destructive hover:text-destructive/80 px-1" disabled={busy}>Delete</button>
+        </div>
+      </td>
+    </tr>
   );
 }
 

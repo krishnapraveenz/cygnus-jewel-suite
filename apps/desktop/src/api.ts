@@ -541,6 +541,8 @@ export const createItemCategory = (body: { name: string; sort_order?: number }) 
   req<{ id: number }>("POST", "/item-categories", body);
 export const updateItemCategory = (id: number, body: { name?: string; active?: boolean; sort_order?: number }) =>
   req<unknown>("POST", `/item-categories/${id}`, body);
+export const deleteItemCategory = (id: number) =>
+  req<unknown>("DELETE", `/item-categories/${id}`);
 
 export interface Department { id: number; name: string; sort_order: number; active: boolean }
 export const listDepartments = () => req<Department[]>("GET", "/departments");
