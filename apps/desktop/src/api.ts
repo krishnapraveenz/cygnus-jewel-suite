@@ -358,6 +358,29 @@ export const setSetting = (key: string, value: string) =>
 export const setBooksLock = (body: { lock_date?: string; begin_date?: string }) =>
   req<{ lock_date: string }>("POST", "/books/lock", body);
 
+/** Download a .cjs backup file (binary). */
+export async function downloadBackup(): Promise<Blob> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(getBase() + "/backup", { method: "POST", headers });
+  if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+  return res.blob();
+}
+
+/** Upload a .cjs backup file to restore (replaces all data). */
+export async function uploadRestore(file: File): Promise<{ restored: boolean; backup_timestamp: string }> {
+  const headers: Record<string, string> = {};
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(getBase() + "/restore", {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/octet-stream" },
+    body: file,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+  return JSON.parse(text);
+}
+
 export interface OpeningPartyRow { id: number; display_name: string; opening_cash_balance: string; opening_metal_balance: string }
 export const openingParties = () => req<OpeningPartyRow[]>("GET", "/opening/parties");
 export const setOpeningParties = (rows: { party_id: number; opening_cash_balance: string; opening_metal_balance: string }[]) =>

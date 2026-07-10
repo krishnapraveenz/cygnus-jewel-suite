@@ -290,6 +290,8 @@ fn build_router(state: AppState) -> Router {
         .route("/estimates/:id/convert", post(convert_estimate))
         .route("/settings", get(list_settings).post(upsert_setting))
         .route("/books/lock", post(set_books_lock))
+        .route("/backup", post(create_backup))
+        .route("/restore", post(restore_backup))
         .route("/old-gold", get(list_old_gold))
         .route("/old-gold/:id/convert", post(convert_old_gold))
         .route("/cheques", get(list_cheques))
@@ -6386,6 +6388,148 @@ async fn set_books_lock(
         .map_err(internal)?;
     }
     Ok(Json(json!({ "lock_date": lock })))
+}
+
+// ===================== Backup & Restore (.cjs format) =====================
+
+use std::io::Write;
+
+const CJS_MAGIC: &[u8] = b"CYGNUS_BACKUP\n";
+
+/// POST /backup — generate a .cjs backup file (integrity-checked, compressed pg_dump).
+async fn create_backup(State(s): State<AppState>, auth: AuthUser) -> Result<axum::response::Response, ApiError> {
+    auth.require("user.manage")?; // owner only
+    use axum::http::header;
+    use axum::response::IntoResponse;
+
+    // Get the DATABASE_URL to run pg_dump against.
+    let url = env::var("DATABASE_URL").unwrap_or_else(|_|
+        "postgresql://postgres@localhost:5433/cygnus?sslmode=disable".to_string());
+
+    // Run pg_dump as a child process.
+    let output = tokio::process::Command::new("pg_dump")
+        .arg(&url)
+        .arg("--no-owner")
+        .arg("--no-acl")
+        .arg("--clean")
+        .arg("--if-exists")
+        .output()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("pg_dump failed to start: {e}")))?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("pg_dump error: {err}")));
+    }
+    let raw_sql = output.stdout;
+    let original_size = raw_sql.len();
+
+    // Compress with gzip.
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&raw_sql).map_err(internal)?;
+    let compressed = encoder.finish().map_err(internal)?;
+    let compressed_size = compressed.len();
+
+    // SHA-256 of the compressed payload.
+    use sha2::{Sha256, Digest};
+    let checksum = format!("sha256:{:x}", Sha256::digest(&compressed));
+
+    // Build the .cjs file.
+    let ist = FixedOffset::east_opt(5 * 3600 + 30 * 60).expect("valid offset");
+    let timestamp = Utc::now().with_timezone(&ist).to_rfc3339();
+    let header = serde_json::to_string(&json!({
+        "version": 1,
+        "timestamp": timestamp,
+        "db": "cygnus",
+        "checksum": checksum,
+        "compressed_size": compressed_size,
+        "original_size": original_size,
+    })).unwrap();
+
+    let mut body: Vec<u8> = Vec::with_capacity(CJS_MAGIC.len() + header.len() + 2 + compressed_size);
+    body.extend_from_slice(CJS_MAGIC);
+    body.extend_from_slice(header.as_bytes());
+    body.push(b'\n');
+    body.extend_from_slice(&compressed);
+
+    let filename = format!("cygnus_{}.cjs", Utc::now().with_timezone(&ist).format("%Y%m%d_%H%M%S"));
+    let resp = (
+        [(header::CONTENT_TYPE, "application/octet-stream"),
+         (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{filename}\"") as &str)],
+        body,
+    ).into_response();
+    Ok(resp)
+}
+
+/// POST /restore — upload a .cjs file, verify integrity, restore the database.
+async fn restore_backup(
+    State(s): State<AppState>,
+    auth: AuthUser,
+    body: axum::body::Bytes,
+) -> Result<Json<Value>, ApiError> {
+    auth.require("user.manage")?; // owner only
+    use sha2::{Sha256, Digest};
+
+    // Parse the .cjs format.
+    if body.len() < CJS_MAGIC.len() || &body[..CJS_MAGIC.len()] != CJS_MAGIC {
+        return Err((StatusCode::BAD_REQUEST, "Not a valid .cjs backup file (bad magic).".to_string()));
+    }
+    let after_magic = &body[CJS_MAGIC.len()..];
+    let newline_pos = after_magic.iter().position(|&b| b == b'\n')
+        .ok_or((StatusCode::BAD_REQUEST, "Corrupt .cjs file (no header terminator).".to_string()))?;
+    let header_str = std::str::from_utf8(&after_magic[..newline_pos])
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Corrupt .cjs header (not UTF-8).".to_string()))?;
+    let header: Value = serde_json::from_str(header_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Corrupt .cjs header (not valid JSON).".to_string()))?;
+
+    let expected_checksum = header["checksum"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing checksum in .cjs header.".to_string()))?;
+
+    let payload = &after_magic[newline_pos + 1..];
+
+    // Integrity check: SHA-256 of the compressed payload must match the header.
+    let actual_checksum = format!("sha256:{:x}", Sha256::digest(payload));
+    if actual_checksum != expected_checksum {
+        return Err((StatusCode::CONFLICT,
+            format!("Backup file is CORRUPTED — checksum mismatch.\nExpected: {expected_checksum}\nActual:   {actual_checksum}\n\nThe file may have been damaged during transfer. Do NOT restore from a corrupted backup.")));
+    }
+
+    // Decompress.
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+    let mut decoder = GzDecoder::new(payload);
+    let mut sql = String::new();
+    decoder.read_to_string(&mut sql)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to decompress payload: {e}")))?;
+
+    // Restore: pipe the SQL through psql (handles multi-statement dumps correctly).
+    let url = env::var("DATABASE_URL").unwrap_or_else(|_|
+        "postgresql://postgres@localhost:5433/cygnus?sslmode=disable".to_string());
+    let mut child = tokio::process::Command::new("psql")
+        .arg(&url)
+        .arg("-v")
+        .arg("ON_ERROR_STOP=1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start psql: {e}")))?;
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(sql.as_bytes()).await.map_err(internal)?;
+        stdin.shutdown().await.map_err(internal)?;
+    }
+    let out = child.wait_with_output().await.map_err(internal)?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Restore failed: {err}")));
+    }
+
+    Ok(Json(json!({
+        "restored": true,
+        "backup_timestamp": header["timestamp"],
+        "original_size": header["original_size"],
+    })))
 }
 
 // ===================== Estimates (same-day quotations) =====================

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Printer, Building2, Hash, ShieldCheck, RotateCcw, Save, SlidersHorizontal, Gem, Blocks, Lock } from "lucide-react";
 import * as api from "@/api";
 import { Materials } from "@/components/settings/Materials";
@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: "company", label: "Company profile", icon: Building2, ready: true },
   { id: "series", label: "Document numbering", icon: Hash, ready: true },
   { id: "books", label: "Financial Year & Locking", icon: Lock, ready: true },
+  { id: "backup", label: "Backup & Restore", icon: Save, ready: true },
   { id: "users", label: "Users & roles", icon: ShieldCheck, ready: true },
 ] as const;
 
@@ -122,7 +123,7 @@ export function Settings() {
           })}
         </Card>
 
-        {section === "print" ? <PrintAndPage /> : section === "general" ? <General /> : section === "materials" ? <Materials /> : section === "modules" ? <Modules /> : section === "company" ? <CompanyProfileForm /> : section === "series" ? <DocNumbering /> : section === "books" ? <BooksLocking /> : section === "users" && isOwner ? <Users /> : null}
+        {section === "print" ? <PrintAndPage /> : section === "general" ? <General /> : section === "materials" ? <Materials /> : section === "modules" ? <Modules /> : section === "company" ? <CompanyProfileForm /> : section === "series" ? <DocNumbering /> : section === "books" ? <BooksLocking /> : section === "backup" ? <BackupRestore /> : section === "users" && isOwner ? <Users /> : null}
       </div>
     </div>
   );
@@ -887,6 +888,77 @@ function BooksLocking() {
           </Button>
         </div>
       </div>
+    </Card>
+  );
+}
+
+/** Backup & Restore: download .cjs backup or upload to restore (with integrity check). */
+function BackupRestore() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function doBackup() {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const blob = await api.downloadBackup();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cygnus_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.cjs`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMsg(`Backup downloaded (${(blob.size / 1024).toFixed(0)} KB). Store it safely.`);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally { setBusy(false); }
+  }
+
+  async function doRestore() {
+    const file = fileRef.current?.files?.[0];
+    if (!file) { setErr("Select a .cjs backup file first."); return; }
+    if (!file.name.endsWith(".cjs")) { setErr("File must have a .cjs extension."); return; }
+    if (!window.confirm("⚠️ RESTORE will REPLACE ALL current data with the backup. This is irreversible.\n\nAre you sure?")) return;
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const r = await api.uploadRestore(file);
+      setMsg(`✓ Restored from backup (${r.backup_timestamp}). Reload the app to see restored data.`);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Card className="p-4 max-w-2xl space-y-4">
+      <div>
+        <div className="text-sm font-medium">Backup &amp; Restore</div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Backups are <b>.cjs</b> files — a complete, integrity-checked (SHA-256) snapshot of all your data.
+          If the file is corrupted (damaged in transfer, disk error), restore will be rejected with a clear error.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="p-4 space-y-2 border-primary/20">
+          <div className="text-sm font-medium">Download backup</div>
+          <p className="text-xs text-muted-foreground">Complete data dump — invoices, stock, parties, accounts, everything.</p>
+          <Button onClick={doBackup} disabled={busy}>{busy ? "Generating…" : "Download .cjs backup"}</Button>
+        </Card>
+        <Card className="p-4 space-y-2 border-destructive/20">
+          <div className="text-sm font-medium">Restore from backup</div>
+          <p className="text-xs text-muted-foreground">Replaces ALL current data. Integrity is verified before restoring.</p>
+          <input ref={fileRef} type="file" accept=".cjs" className="text-sm" />
+          <Button variant="destructive" onClick={doRestore} disabled={busy}>{busy ? "Restoring…" : "Restore"}</Button>
+        </Card>
+      </div>
+
+      {msg && <div className="rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm text-green-700 dark:text-green-400">{msg}</div>}
+      {err && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive whitespace-pre-wrap">{err}</div>}
+
+      <p className="text-[11px] text-muted-foreground">
+        Automatic daily backups: configure <code>tools/backup.sh</code> via cron. Keep copies on an external drive or cloud. Backup rotation default: 14 days.
+      </p>
     </Card>
   );
 }

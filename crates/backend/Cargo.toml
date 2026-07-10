@@ -15,6 +15,8 @@ rust_decimal = { version = "1", features = ["serde-str"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 argon2 = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
+flate2 = "1"
+sha2 = "0.10"
 # Optional: embedded PostgreSQL for "server" installs. When compiled with the
 # `embedded-pg` feature and run with `--server`, the backend downloads/caches (or, with
 # the crate's `bundled` feature, embeds) a PostgreSQL 18 build and manages it itself — so

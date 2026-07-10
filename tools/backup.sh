@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# Cygnus Jewel Suite — automated PostgreSQL backup with rotation.
-# Place in: /opt/cygnus/backup.sh (or tools/backup.sh in the repo)
+# Cygnus Jewel Suite — automated backup in .cjs format (integrity-checked).
+# Produces a .cjs file: magic header + JSON metadata (SHA-256 checksum) + gzip payload.
 # Schedule: daily via cron or systemd timer.
 #
 # Usage:
-#   PGPASSWORD=xxx ./backup.sh              # uses defaults
-#   DB_NAME=cygnus DB_PORT=5433 BACKUP_DIR=/mnt/backup KEEP_DAYS=30 ./backup.sh
+#   ./backup.sh                            # uses defaults
+#   DB_NAME=cygnus BACKUP_DIR=/mnt/backup KEEP_DAYS=30 ./backup.sh
 #
-# What it does:
-#   1. pg_dump → compressed .sql.gz with timestamp.
-#   2. Removes backups older than KEEP_DAYS.
-#   3. Logs success/failure to syslog (logger) and stdout.
+# Restore:
+#   Use the Settings → Backup & Restore UI, or POST /restore with the .cjs file.
+#   Manual: see docs/03-delivery/backup-restore.md.
 #
-# Recommended cron (daily at 2 AM):
+# Cron (daily at 2 AM):
 #   0 2 * * * /opt/cygnus/backup.sh >> /var/log/cygnus-backup.log 2>&1
 
 set -euo pipefail
@@ -23,32 +22,49 @@ DB_PORT="${DB_PORT:-5433}"
 DB_NAME="${DB_NAME:-cygnus}"
 DB_USER="${DB_USER:-postgres}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/cygnus-backups}"
-KEEP_DAYS="${KEEP_DAYS:-14}"          # rotate: keep last N days
-PG_DUMP="${PG_DUMP:-pg_dump}"         # path to pg_dump if not in PATH
+KEEP_DAYS="${KEEP_DAYS:-14}"
+PG_DUMP="${PG_DUMP:-pg_dump}"
 
 # --- Execution ---
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-FILENAME="cygnus_${TIMESTAMP}.sql.gz"
+FILENAME="cygnus_${TIMESTAMP}.cjs"
 FILEPATH="${BACKUP_DIR}/${FILENAME}"
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
 
 mkdir -p "${BACKUP_DIR}"
+echo "[$(date)] Starting .cjs backup → ${FILEPATH}"
 
-echo "[$(date)] Starting backup → ${FILEPATH}"
+# 1. pg_dump → raw SQL
+RAW="${TMPDIR}/dump.sql"
+${PG_DUMP} -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" --no-owner --no-acl > "${RAW}"
+ORIGINAL_SIZE=$(stat -c%s "${RAW}")
 
-if ${PG_DUMP} -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" --no-owner --no-acl | gzip > "${FILEPATH}"; then
-    SIZE=$(du -h "${FILEPATH}" | cut -f1)
-    echo "[$(date)] ✓ Backup complete: ${FILENAME} (${SIZE})"
-    logger -t cygnus-backup "OK: ${FILENAME} (${SIZE})"
-else
-    echo "[$(date)] ✗ Backup FAILED"
-    logger -t cygnus-backup "FAILED: ${DB_NAME}"
-    exit 1
-fi
+# 2. Compress
+COMPRESSED="${TMPDIR}/dump.sql.gz"
+gzip -c "${RAW}" > "${COMPRESSED}"
+COMPRESSED_SIZE=$(stat -c%s "${COMPRESSED}")
 
-# --- Rotation: remove backups older than KEEP_DAYS ---
-DELETED=$(find "${BACKUP_DIR}" -name "cygnus_*.sql.gz" -mtime "+${KEEP_DAYS}" -delete -print | wc -l)
+# 3. SHA-256 of the compressed payload
+CHECKSUM="sha256:$(sha256sum "${COMPRESSED}" | cut -d' ' -f1)"
+
+# 4. Build .cjs file: magic + JSON header + newline + payload
+HEADER="{\"version\":1,\"timestamp\":\"$(date -Iseconds)\",\"db\":\"${DB_NAME}\",\"checksum\":\"${CHECKSUM}\",\"compressed_size\":${COMPRESSED_SIZE},\"original_size\":${ORIGINAL_SIZE}}"
+
+{
+  printf 'CYGNUS_BACKUP\n'
+  printf '%s\n' "${HEADER}"
+  cat "${COMPRESSED}"
+} > "${FILEPATH}"
+
+TOTAL_SIZE=$(du -h "${FILEPATH}" | cut -f1)
+echo "[$(date)] ✓ Backup complete: ${FILENAME} (${TOTAL_SIZE}, payload ${COMPRESSED_SIZE} bytes, checksum ${CHECKSUM})"
+logger -t cygnus-backup "OK: ${FILENAME} (${TOTAL_SIZE})"
+
+# 5. Rotation: remove old backups
+DELETED=$(find "${BACKUP_DIR}" -name "cygnus_*.cjs" -mtime "+${KEEP_DAYS}" -delete -print | wc -l)
 if [ "${DELETED}" -gt 0 ]; then
-    echo "[$(date)] Rotated ${DELETED} old backup(s) (older than ${KEEP_DAYS} days)"
+    echo "[$(date)] Rotated ${DELETED} old backup(s)"
 fi
 
-echo "[$(date)] Done. Backups in ${BACKUP_DIR}: $(ls "${BACKUP_DIR}"/cygnus_*.sql.gz 2>/dev/null | wc -l) file(s)"
+echo "[$(date)] Done. ${BACKUP_DIR}: $(ls "${BACKUP_DIR}"/cygnus_*.cjs 2>/dev/null | wc -l) backup(s)"
