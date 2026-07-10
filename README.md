@@ -1,5 +1,13 @@
 # Cygnus Jewel Suite
 
+<p align="center">
+  <img src="apps/desktop/public/logo.png" alt="Cygnus Jewel Suite" width="120" />
+</p>
+<h3 align="center">Cygnus Jewel Suite</h3>
+<p align="center">Jewellery Sales & Management Platform</p>
+
+---
+
 A modern, cross-platform **jewellery retail & wholesale management platform** for gold,
 silver, platinum, diamond and precious-stone businesses in the Indian market.
 
