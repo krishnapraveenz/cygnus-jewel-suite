@@ -358,9 +358,7 @@ fn build_router(state: AppState) -> Router {
         .route("/reports/metal-account", get(report_metal_account))
         .route("/reports/stock-overview", get(report_stock_overview))
         .route("/item-categories", get(list_item_categories).post(create_item_category))
-        .route("/item-categories/:id", post(update_item_category).delete(delete_item_category))
-        .route("/item-categories/:id/variations", get(list_variations).post(create_variation))
-        .route("/variations/:id", post(update_variation).delete(delete_variation))
+        .route("/item-categories/:id", post(update_item_category))
         .route("/reports/gst-summary", get(report_gst))
         .route("/reports/payment-modes", get(report_payment_modes))
         .route("/reports/dashboard", get(report_dashboard))
@@ -3242,62 +3240,6 @@ async fn update_item_category(
     .await
     .map_err(internal)?;
     Ok(Json(json!({ "id": id, "updated": true })))
-}
-
-async fn delete_item_category(State(s): State<AppState>, auth: AuthUser, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
-    auth.require("stock.manage")?;
-    // Don't delete if any items reference this category.
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM item WHERE category_id = $1")
-        .bind(id).fetch_one(&s.db).await.map_err(internal)?;
-    if count > 0 {
-        return Err((StatusCode::CONFLICT, format!("Cannot delete — {count} item(s) use this category. Deactivate it instead.")));
-    }
-    sqlx::query("DELETE FROM item_category WHERE id = $1").bind(id).execute(&s.db).await.map_err(internal)?;
-    Ok(Json(json!({ "deleted": true })))
-}
-
-// ---- Category variations (sub-types under a product category) ----
-
-async fn list_variations(State(s): State<AppState>, _auth: AuthUser, Path(cat_id): Path<i64>) -> Result<Json<Value>, ApiError> {
-    let rows = sqlx::query_as::<_, (i64, String, bool, i32)>(
-        "SELECT id, name, active, sort_order FROM category_variation WHERE category_id = $1 ORDER BY sort_order, name")
-        .bind(cat_id).fetch_all(&s.db).await.map_err(internal)?;
-    Ok(Json(json!(rows.iter().map(|(id, name, active, so)| json!({ "id": id, "name": name, "active": active, "sort_order": so })).collect::<Vec<_>>())))
-}
-
-#[derive(Deserialize)]
-struct NewVariation { name: String, sort_order: Option<i32> }
-
-async fn create_variation(State(s): State<AppState>, auth: AuthUser, Path(cat_id): Path<i64>, Json(n): Json<NewVariation>) -> Result<Json<Value>, ApiError> {
-    auth.require("stock.manage")?;
-    if n.name.trim().is_empty() { return Err((StatusCode::BAD_REQUEST, "variation name required".to_string())); }
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO category_variation (category_id, name, sort_order) VALUES ($1, $2, COALESCE($3, 100)) RETURNING id")
-        .bind(cat_id).bind(n.name.trim()).bind(n.sort_order)
-        .fetch_one(&s.db).await.map_err(internal)?;
-    Ok(Json(json!({ "id": id })))
-}
-
-#[derive(Deserialize)]
-struct UpdateVariation { name: Option<String>, active: Option<bool>, sort_order: Option<i32> }
-
-async fn update_variation(State(s): State<AppState>, auth: AuthUser, Path(id): Path<i64>, Json(u): Json<UpdateVariation>) -> Result<Json<Value>, ApiError> {
-    auth.require("stock.manage")?;
-    sqlx::query("UPDATE category_variation SET name = COALESCE($2, name), active = COALESCE($3, active), sort_order = COALESCE($4, sort_order) WHERE id = $1")
-        .bind(id).bind(u.name.as_deref()).bind(u.active).bind(u.sort_order)
-        .execute(&s.db).await.map_err(internal)?;
-    Ok(Json(json!({ "id": id, "updated": true })))
-}
-
-async fn delete_variation(State(s): State<AppState>, auth: AuthUser, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
-    auth.require("stock.manage")?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM item WHERE variation_id = $1")
-        .bind(id).fetch_one(&s.db).await.map_err(internal)?;
-    if count > 0 {
-        return Err((StatusCode::CONFLICT, format!("Cannot delete — {count} item(s) use this variation. Deactivate it instead.")));
-    }
-    sqlx::query("DELETE FROM category_variation WHERE id = $1").bind(id).execute(&s.db).await.map_err(internal)?;
-    Ok(Json(json!({ "deleted": true })))
 }
 
 fn cap_first(s: &str) -> String {
