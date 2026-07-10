@@ -76,6 +76,38 @@
   body {
     @apply bg-background text-foreground font-sans text-sm antialiased;
     margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Crisp focus rings */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/50 ring-offset-1 ring-offset-background;
+  }
+  /* Smoother transitions everywhere */
+  button, a, input, select, textarea {
+    @apply transition-colors duration-150;
+  }
+  /* Polished card defaults */
+  .card, [class*="rounded-"] {
+    @apply shadow-sm;
+  }
+  /* Crisp table rows */
+  table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  th {
+    @apply text-xs font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+  /* Inputs — consistent height + sharper border */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    @apply border-input bg-background text-foreground;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):hover,
+  select:hover {
+    border-color: color-mix(in srgb, var(--color-input) 100%, var(--color-foreground) 20%);
   }
 }
 
