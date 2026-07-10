@@ -30,8 +30,9 @@ Migrations applied through **0071**. App is far along; work is incremental.
   owner/manager). `assert_not_locked(&db, date)` guard rejects (409) any entry dated on/before the lock —
   wired into invoice, purchase + return, expense, receipt, bank-entry, advance, rate-cut, scheme
   collection, old-jewellery convert, melt. UI: **Settings → Financial Year & Locking** (begin date +
-  lock date + Save + Clear). *Not yet guarded (follow-up):* staff/payroll. Sales-return/credit-note and
-  bank-entry edit/delete are now guarded too. **Fix:** `accounts_rebuild` now posts a negative payable
+  lock date + Save + Clear). Sales-return/credit-note and
+  bank-entry edit/delete are now guarded too. **Staff/payroll** (generate_payroll,
+  set_payroll_status/mark-paid, create_staff_advance) also guarded. **Fix:** `accounts_rebuild` now posts a negative payable **Fix:** `accounts_rebuild` now posts a negative payable
   (old gold / credits exceed the bill) as a **Cr to Customer Advances (2100)** — we owe the customer the
   excess — so the Trial Balance balances even when an exchange is larger than the new purchase.
 - **FY selection** (`lib/fy.ts`, Indian Apr–Mar): Reports has an **FY quick-select** that sets the
@@ -293,8 +294,9 @@ Migrations applied through **0071**. App is far along; work is incremental.
   `EMBEDDED_PG_PASSWORD`, `CYGNUS_DATA_DIR`) and auto-opens the LAN — so a server PC needs no
   separate DB install. Clients run only the desktop app, pointed at the server URL (login screen
   field, `cygnus_base`). CORS permissive. **Verified** embedded boot + migrate + login end-to-end.
-  *Not yet done:* graceful shutdown handler (SIGTERM leaves embedded PG orphaned — `Drop` doesn't
-  run on signals), offline cache / WebSocket live sync, packaged role-picker installer.
+  **Graceful shutdown** added (SIGTERM/SIGINT → axum graceful stop → `pg.stop()` before exit;
+  embedded PG is no longer orphaned on signals).
+  *Not yet done:* offline cache / WebSocket live sync, packaged role-picker installer.
 - **Connected-clients + role indicator** (done): backend tracks caller IPs via the `/health`
   heartbeat (desktop pings every 15s) → `/health` now returns `clients` (distinct non-loopback
   machines active in the last 60s) + `terminals`. Footer StatusBar shows a **Server / Client** badge
