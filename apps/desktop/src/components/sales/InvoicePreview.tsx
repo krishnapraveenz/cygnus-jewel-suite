@@ -127,7 +127,7 @@ export function InvoicePreview({
               <div className="text-xs">No: <b>{inv.document_no}</b></div>
               <div className="text-xs">Date: {formatDate(inv.created_at)}</div>
               {isEstimate ? (
-                <div className="text-xs font-semibold text-amber-700">Valid today only ({inv.valid_on})</div>
+                <div className="text-xs font-semibold text-amber-700">Valid today only ({formatDate(inv.valid_on)})</div>
               ) : isCredit ? (
                 <div className="text-xs font-semibold text-green-700">Refund / return</div>
               ) : (

@@ -49,44 +49,68 @@ export function clearToken() {
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const MAX_RETRIES = 3;
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (token) headers["authorization"] = `Bearer ${token}`;
-  const res = await fetch(getBase() + path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
 
-  // Handle an expired/invalid session FIRST — the backend may return a plaintext
-  // body (e.g. "invalid token"), so this must happen before any JSON parsing.
-  if (
-    res.status === 401 &&
-    path !== "/auth/login" &&
-    path !== "/auth/logout" &&
-    path !== "/auth/change-password"
-  ) {
-    clearToken();
-    localStorage.removeItem("cygnus_role");
-    if (typeof window !== "undefined") window.location.reload();
-    throw new Error("Session expired — please sign in again.");
-  }
-
-  // Parse defensively: error responses are often plaintext, not JSON.
-  let data: unknown = null;
-  if (text) {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let res: Response;
     try {
-      data = JSON.parse(text);
-    } catch {
-      data = text; // keep the raw message (used below for error text)
+      res = await fetch(getBase() + path, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (e) {
+      // Network error (server down, no connectivity) — retry with exponential backoff.
+      lastError = e instanceof Error ? e : new Error("Network error");
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1000)); // 1s, 2s, 3s
+        continue;
+      }
+      throw new Error(`Server unreachable after ${MAX_RETRIES} attempts — check the connection.`);
     }
-  }
+    const text = await res.text();
 
-  if (!res.ok) {
-    const msg = typeof data === "string" ? data : text || `HTTP ${res.status}`;
-    throw new Error(msg);
+    // Handle an expired/invalid session FIRST — the backend may return a plaintext
+    // body (e.g. "invalid token"), so this must happen before any JSON parsing.
+    if (
+      res.status === 401 &&
+      path !== "/auth/login" &&
+      path !== "/auth/logout" &&
+      path !== "/auth/change-password"
+    ) {
+      clearToken();
+      localStorage.removeItem("cygnus_role");
+      if (typeof window !== "undefined") window.location.reload();
+      throw new Error("Session expired — please sign in again.");
+    }
+
+    // 5xx server errors: retry (transient backend issue).
+    if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
+      lastError = new Error(text || `HTTP ${res.status}`);
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 1000));
+      continue;
+    }
+
+    // Parse defensively: error responses are often plaintext, not JSON.
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+
+    if (!res.ok) {
+      const msg = typeof data === "string" ? data : text || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return data as T;
   }
-  return data as T;
+  throw lastError ?? new Error("Request failed");
 }
 
 export interface PriceBreakdown {

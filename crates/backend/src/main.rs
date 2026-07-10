@@ -13239,6 +13239,31 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert_ne!(a, b);
     }
+
+    #[test]
+    fn today_ist_format() {
+        let t = today_ist();
+        assert_eq!(t.len(), 10); // YYYY-MM-DD
+        assert_eq!(&t[4..5], "-");
+        assert_eq!(&t[7..8], "-");
+    }
+
+    #[test]
+    fn fy_indian_apr_mar() {
+        // current_fy in IST: Apr–Mar. We can at least verify the format.
+        let fy = current_fy();
+        assert_eq!(fy.len(), 7); // "YYYY-YY"
+        assert_eq!(&fy[4..5], "-");
+    }
+
+    #[test]
+    fn books_lock_permission() {
+        // books.lock is allowed for owner + manager, not cashier/accountant.
+        assert!(has_permission("owner", "books.lock"));
+        assert!(has_permission("manager", "books.lock"));
+        assert!(!has_permission("cashier", "books.lock"));
+        assert!(!has_permission("accountant", "books.lock"));
+    }
 }
 
 // ---- HTTP + DB integration tests ----

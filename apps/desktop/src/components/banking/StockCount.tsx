@@ -107,7 +107,7 @@ export function StockCount({ date }: { date: string }) {
     });
     const wnd = window.open("", "_blank", "width=1000,height=900");
     if (!wnd) return;
-    wnd.document.write(`<html><head><title>Stock Count ${date}</title>
+    wnd.document.write(`<html><head><title>Stock Count ${formatDate(date)}</title>
       <style>body{font-family:system-ui,sans-serif;padding:24px;color:#111}h2{margin:0}h3{margin:14px 0 4px}table{width:100%;border-collapse:collapse;margin-bottom:8px}td,th{padding:3px 6px;border:1px solid #ddd;font-size:11px}.muted{color:#666;font-size:12px}</style></head><body>
       <h2>Stock Day-Close — ${formatDate(date)}</h2>
       <div class="muted">${view.count?.counted_at ? "Counted " + formatDateTime(view.count.counted_at) : "Preview"}</div>

@@ -142,7 +142,7 @@ export function DayClose() {
     const src = view.by_source.map((s) => `<tr><td>${s.source}</td><td style="text-align:right">${formatINR(s.amount)}</td></tr>`).join("");
     const w = window.open("", "_blank", "width=720,height=900");
     if (!w) return;
-    w.document.write(`<html><head><title>Day Close ${date}</title>
+    w.document.write(`<html><head><title>Day Close ${formatDate(date)}</title>
       <style>body{font-family:system-ui,sans-serif;padding:24px;color:#111}h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{padding:4px 8px;border-bottom:1px solid #ddd;font-size:13px}.tot{font-weight:700}.muted{color:#666;font-size:12px}</style></head><body>
       <h2>Day Close — ${formatDate(date)}</h2>
       <div class="muted">Status: ${status.toUpperCase()} ${session?.closed_at ? "· closed " + formatDateTime(session.closed_at) : ""}</div>

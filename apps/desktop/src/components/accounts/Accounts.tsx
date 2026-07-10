@@ -54,8 +54,7 @@ export function Accounts() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, from, to]);
 
-  // Keep the books fresh: rebuild the projection whenever the Accounts screen opens.
-  useEffect(() => { rebuild(); /* eslint-disable-next-line */ }, []);
+  // No auto-rebuild on open (performance at scale). User clicks "Rebuild" explicitly.
 
   async function rebuild() {
     setBusy(true); setMsg(null); setError(null);
