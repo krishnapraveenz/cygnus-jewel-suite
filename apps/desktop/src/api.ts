@@ -544,6 +544,14 @@ export const updateItemCategory = (id: number, body: { name?: string; active?: b
 export const deleteItemCategory = (id: number) =>
   req<unknown>("DELETE", `/item-categories/${id}`);
 
+export interface CategoryVariation { id: number; name: string; active: boolean; sort_order: number }
+export const listVariations = (categoryId: number) => req<CategoryVariation[]>("GET", `/item-categories/${categoryId}/variations`);
+export const createVariation = (categoryId: number, body: { name: string; sort_order?: number }) =>
+  req<{ id: number }>("POST", `/item-categories/${categoryId}/variations`, body);
+export const updateVariation = (id: number, body: { name?: string; active?: boolean; sort_order?: number }) =>
+  req<unknown>("POST", `/variations/${id}`, body);
+export const deleteVariation = (id: number) => req<unknown>("DELETE", `/variations/${id}`);
+
 export interface Department { id: number; name: string; sort_order: number; active: boolean }
 export const listDepartments = () => req<Department[]>("GET", "/departments");
 export const createDepartment = (body: { name: string; sort_order?: number }) =>

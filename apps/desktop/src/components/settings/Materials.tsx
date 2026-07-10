@@ -110,6 +110,17 @@ function CategoryRow({ cat: c, onReload, onErr }: { cat: import("@/api").ItemCat
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(c.name);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [vars, setVars] = useState<import("@/api").CategoryVariation[]>([]);
+  const [newVar, setNewVar] = useState("");
+
+  async function loadVars() {
+    try { setVars(await api.listVariations(c.id)); } catch { /* ignore */ }
+  }
+  function toggle() {
+    if (!expanded) loadVars();
+    setExpanded((e) => !e);
+  }
 
   async function saveName() {
     if (!editName.trim() || editName.trim() === c.name) { setEditing(false); return; }
@@ -132,29 +143,68 @@ function CategoryRow({ cat: c, onReload, onErr }: { cat: import("@/api").ItemCat
     finally { setBusy(false); }
   }
 
+  async function addVar() {
+    if (!newVar.trim()) return;
+    try {
+      await api.createVariation(c.id, { name: newVar.trim() });
+      setNewVar("");
+      await loadVars();
+    } catch (e) { onErr(String(e instanceof Error ? e.message : e)); }
+  }
+
+  async function delVar(v: import("@/api").CategoryVariation) {
+    if (!window.confirm(`Delete variation "${v.name}"?`)) return;
+    try { await api.deleteVariation(v.id); await loadVars(); }
+    catch (e) { onErr(String(e instanceof Error ? e.message : e)); }
+  }
+
   return (
-    <tr className="border-b border-border last:border-0">
-      <td className="px-4 py-1.5">
-        {editing ? (
-          <div className="flex items-center gap-2">
-            <Input className="h-7 w-48" value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveName()} autoFocus />
-            <Button variant="outline" size="sm" onClick={saveName} disabled={busy}>Save</Button>
-            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setEditName(c.name); }}>Cancel</Button>
+    <>
+      <tr className="border-b border-border last:border-0">
+        <td className="px-4 py-1.5">
+          {editing ? (
+            <div className="flex items-center gap-2">
+              <Input className="h-7 w-48" value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveName()} autoFocus />
+              <Button variant="outline" size="sm" onClick={saveName} disabled={busy}>Save</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setEditName(c.name); }}>Cancel</Button>
+            </div>
+          ) : (
+            <span className="cursor-pointer hover:text-primary font-medium" onClick={() => setEditing(true)} title="Click to rename">{c.name}</span>
+          )}
+        </td>
+        <td className="px-4 py-1.5 text-center">
+          <input type="checkbox" checked={c.active} onChange={(e) => api.updateItemCategory(c.id, { active: e.target.checked }).then(onReload)} />
+        </td>
+        <td className="px-4 py-1.5 text-right">
+          <div className="flex items-center justify-end gap-1">
+            <button onClick={toggle} className="text-xs text-primary hover:underline px-1">{expanded ? "Hide" : "Variations"}</button>
+            <button onClick={() => setEditing(true)} className="text-xs text-muted-foreground hover:text-primary px-1">Edit</button>
+            <button onClick={del} className="text-xs text-destructive hover:text-destructive/80 px-1" disabled={busy}>Delete</button>
           </div>
-        ) : (
-          <span className="cursor-pointer hover:text-primary" onClick={() => setEditing(true)} title="Click to rename">{c.name}</span>
-        )}
-      </td>
-      <td className="px-4 py-1.5 text-center">
-        <input type="checkbox" checked={c.active} onChange={(e) => api.updateItemCategory(c.id, { active: e.target.checked }).then(onReload)} />
-      </td>
-      <td className="px-4 py-1.5 text-right">
-        <div className="flex items-center justify-end gap-1">
-          <button onClick={() => setEditing(true)} className="text-xs text-muted-foreground hover:text-primary px-1">Edit</button>
-          <button onClick={del} className="text-xs text-destructive hover:text-destructive/80 px-1" disabled={busy}>Delete</button>
-        </div>
-      </td>
-    </tr>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-border">
+          <td colSpan={3} className="px-6 py-2 bg-muted/20">
+            <div className="text-xs text-muted-foreground mb-1">Variations of <b>{c.name}</b></div>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {vars.map((v) => (
+                <span key={v.id} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${v.active ? "border-border" : "border-border/50 text-muted-foreground line-through"}`}>
+                  {v.name}
+                  <button onClick={() => api.updateVariation(v.id, { active: !v.active }).then(loadVars)} className="text-muted-foreground hover:text-primary" title={v.active ? "Deactivate" : "Activate"}>{v.active ? "○" : "●"}</button>
+                  <button onClick={() => delVar(v)} className="text-destructive hover:text-destructive/80" title="Delete">×</button>
+                </span>
+              ))}
+              {vars.length === 0 && <span className="text-xs text-muted-foreground">No variations yet.</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input className="h-7 w-48" value={newVar} onChange={(e) => setNewVar(e.target.value)} placeholder="Add variation (e.g. Choker)" onKeyDown={(e) => e.key === "Enter" && addVar()} />
+              <Button variant="outline" size="sm" onClick={addVar}><Plus className="w-3 h-3 mr-1" />Add</Button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
