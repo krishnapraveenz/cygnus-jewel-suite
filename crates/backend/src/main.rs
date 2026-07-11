@@ -286,7 +286,7 @@ fn build_router(state: AppState) -> Router {
         .route("/invoices/:id", get(get_invoice))
         .route("/invoices/:id/einvoice", get(invoice_einvoice))
         .route("/estimates", get(list_estimates).post(create_estimate))
-        .route("/estimates/:id", get(get_estimate))
+        .route("/estimates/:id", get(get_estimate).post(update_estimate).delete(delete_estimate))
         .route("/estimates/:id/convert", post(convert_estimate))
         .route("/settings", get(list_settings).post(upsert_setting))
         .route("/books/lock", post(set_books_lock))
@@ -7010,6 +7010,121 @@ async fn get_estimate(
 struct ConvertEstimateReq {
     payment_mode: Option<String>,
     cash_amount: Option<Decimal>,
+}
+
+/// POST /estimates/:id — update an open estimate (customer + lines + totals).
+/// Estimates are indicative (not tax documents), so we accept pre-computed totals from the
+/// frontend and store them directly. The valuation is done client-side via price_preview.
+async fn update_estimate(
+    State(s): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+    Json(req): Json<EstimateCreateReq>,
+) -> Result<Json<Value>, ApiError> {
+    auth.require("sale.create")?;
+    if req.lines.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "estimate has no lines".to_string()));
+    }
+    let cur: Option<(String, String, String, i64)> = sqlx::query_as(
+        "SELECT status, fy, series_code, branch_id FROM estimate WHERE id = $1")
+        .bind(id).fetch_optional(&s.db).await.map_err(internal)?;
+    let cur = cur.ok_or((StatusCode::NOT_FOUND, format!("estimate {id} not found")))?;
+    if cur.0 != "open" {
+        return Err((StatusCode::CONFLICT, format!("estimate is '{}' — only open estimates can be edited", cur.0)));
+    }
+    let branch_id = cur.3;
+    let supply = if req.inter_state { Supply::Inter } else { Supply::Intra };
+    let gst_rate = req.gst_rate.unwrap_or_else(|| Decimal::new(3, 2));
+    let inv_type = if req.invoice_type == "b2b" { "b2b" } else { "retail" };
+
+    let mut tx = s.db.begin().await.map_err(internal)?;
+
+    // Re-value lines server-side (same logic as create_estimate).
+    let mut subtotal = Decimal::ZERO;
+    let mut discount_total = Decimal::ZERO;
+    let mut tax_total = Decimal::ZERO;
+    let mut grand_total = Decimal::ZERO;
+    let mut prepared: Vec<EstPrepared> = Vec::new();
+
+    for ln in &req.lines {
+        let (metal_type_id, purity_id, net_weight, gross_weight, description, huid);
+        if let Some(iid) = ln.item_id {
+            let it: Option<SaleItem> = sqlx::query_as(
+                "SELECT sku, net_weight, metal_type_id, purity_id, ownership_state, branch_id FROM item WHERE id = $1")
+                .bind(iid).fetch_optional(&mut *tx).await.map_err(internal)?;
+            let it = it.ok_or((StatusCode::NOT_FOUND, format!("item {iid} not found")))?;
+            let gw: Option<Decimal> = sqlx::query_scalar("SELECT gross_weight FROM item WHERE id=$1")
+                .bind(iid).fetch_optional(&mut *tx).await.map_err(internal)?;
+            metal_type_id = it.metal_type_id; purity_id = it.purity_id; net_weight = it.net_weight;
+            gross_weight = gw; description = ln.description.clone().unwrap_or_else(|| it.sku.clone()); huid = ln.huid.clone();
+        } else {
+            metal_type_id = ln.metal_type_id.ok_or((StatusCode::BAD_REQUEST, "line needs metal_type_id".into()))?;
+            purity_id = ln.purity_id.ok_or((StatusCode::BAD_REQUEST, "line needs purity_id".into()))?;
+            net_weight = ln.net_weight.ok_or((StatusCode::BAD_REQUEST, "line needs net_weight".into()))?;
+            gross_weight = ln.gross_weight; description = ln.description.clone().unwrap_or_default(); huid = ln.huid.clone();
+        }
+        let is_touch = ln.pricing_mode.as_deref() == Some("touch");
+        let rate = if is_touch {
+            let t = ln.touch_percent.unwrap_or(Decimal::ZERO);
+            let p = ln.pure_rate.unwrap_or(Decimal::ZERO);
+            t / Decimal::from(100) * p
+        } else {
+            match ln.rate_override {
+                Some(r) => r,
+                None => sqlx::query_scalar::<_, Decimal>(
+                    "SELECT sell_rate FROM metal_rate WHERE metal_type_id=$1 AND purity_id=$2 ORDER BY effective_from DESC LIMIT 1")
+                    .bind(metal_type_id).bind(purity_id).fetch_optional(&mut *tx).await.map_err(internal)?
+                    .ok_or((StatusCode::BAD_REQUEST, format!("no rate for metal {metal_type_id}/purity {purity_id}")))?,
+            }
+        };
+        let making = if is_touch { None } else {
+            match (ln.making_per_gram, ln.making_percent) { (Some(pg), _) => Some(Charge::PerGram(pg)), (None, Some(pct)) => Some(Charge::Percent(pct)), _ => None }
+        };
+        let wastage = if is_touch { None } else { ln.wastage_percent.map(Charge::Percent) };
+        let stones = match ln.stone_value { Some(v) if v > Decimal::ZERO => vec![StonePrice::PerPiece { rate: v, pieces: Decimal::ONE }], _ => vec![] };
+        let bd = value_line(&LineInput { metal_rate_per_gram: rate, net_weight, making, wastage, stones, discount: ln.discount, gst_rate, supply });
+        subtotal += bd.taxable_value + bd.discount; discount_total += bd.discount; tax_total += bd.tax_total; grand_total += bd.grand_total;
+        let purity_label: Option<String> = sqlx::query_scalar("SELECT label FROM purity WHERE id=$1").bind(purity_id).fetch_optional(&mut *tx).await.map_err(internal)?;
+        prepared.push(EstPrepared { line_input: serde_json::to_value(ln).map_err(internal)?, description, hsn: ln.hsn.clone(), purity_label, gross_weight, net_weight, huid, making_label: None, rate, breakdown: bd });
+    }
+    let old_gold_value = round_money(req.old_gold_value.unwrap_or(Decimal::ZERO));
+
+    // Update header.
+    sqlx::query("UPDATE estimate SET customer_id=$2, type=$3, inter_state=$4, subtotal=$5, discount_total=$6, tax_total=$7, grand_total=$8, old_gold_value=$9 WHERE id=$1")
+        .bind(id).bind(req.customer_id).bind(inv_type).bind(req.inter_state).bind(subtotal).bind(discount_total).bind(tax_total).bind(grand_total).bind(old_gold_value)
+        .execute(&mut *tx).await.map_err(internal)?;
+    // Replace lines.
+    sqlx::query("DELETE FROM estimate_line WHERE estimate_id=$1").bind(id).execute(&mut *tx).await.map_err(internal)?;
+    for pl in &prepared {
+        let bj = serde_json::to_value(&pl.breakdown).map_err(internal)?;
+        sqlx::query("INSERT INTO estimate_line (estimate_id, line_input, description, hsn, purity_label, gross_weight, net_weight, huid, making_label, rate_used, breakdown_json, taxable_value, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+            .bind(id).bind(&pl.line_input).bind(&pl.description).bind(pl.hsn.as_deref()).bind(pl.purity_label.as_deref())
+            .bind(pl.gross_weight).bind(pl.net_weight).bind(pl.huid.as_deref()).bind(pl.making_label.as_deref())
+            .bind(pl.rate).bind(&bj).bind(pl.breakdown.taxable_value).bind(pl.breakdown.grand_total)
+            .execute(&mut *tx).await.map_err(internal)?;
+    }
+    tx.commit().await.map_err(internal)?;
+    Ok(Json(json!({ "id": id, "updated": true, "grand_total": grand_total.to_string() })))
+}
+
+/// DELETE /estimates/:id — hard delete an open estimate (no financial impact).
+async fn delete_estimate(
+    State(s): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    auth.require("sale.create")?;
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM estimate WHERE id = $1")
+        .bind(id).fetch_optional(&s.db).await.map_err(internal)?;
+    let status = status.ok_or((StatusCode::NOT_FOUND, format!("estimate {id} not found")))?;
+    if status != "open" {
+        return Err((StatusCode::CONFLICT, format!("estimate is '{status}' — only open estimates can be deleted")));
+    }
+    let mut tx = s.db.begin().await.map_err(internal)?;
+    sqlx::query("DELETE FROM estimate_line WHERE estimate_id = $1").bind(id).execute(&mut *tx).await.map_err(internal)?;
+    sqlx::query("DELETE FROM estimate WHERE id = $1").bind(id).execute(&mut *tx).await.map_err(internal)?;
+    tx.commit().await.map_err(internal)?;
+    Ok(Json(json!({ "deleted": true })))
 }
 
 async fn convert_estimate(

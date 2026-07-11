@@ -922,6 +922,7 @@ export interface EstimateListRow {
   customer_name: string | null;
 }
 export const listEstimates = () => req<EstimateListRow[]>("GET", "/estimates");
+export const deleteEstimate = (id: number) => req<{ deleted: boolean }>("DELETE", `/estimates/${id}`);
 
 export interface EstimateDetail {
   id: number;

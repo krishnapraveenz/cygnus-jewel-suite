@@ -532,7 +532,7 @@ export function InvoiceForm({ mode, onPosted }: { mode: Mode; onPosted?: () => v
         customer_id: cid, invoice_type: b2b ? "b2b" : "retail", inter_state: interState, lines: buildLines(),
       });
       setOk(`Estimate ${r.document_no} saved — valid today only.`);
-      setPreview({ doc: await api.getEstimate(r.estimate_id), kind: "estimate" });
+      setPreview({ doc: await api.getEstimate(r.estimate_id) as unknown as import("./InvoicePreview").PreviewDoc, kind: "estimate" });
       resetBuilder();
       onPosted?.();
     } catch (e) { setError(String(e instanceof Error ? e.message : e)); }
