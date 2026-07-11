@@ -1,4 +1,5 @@
 import { getCompany } from "@/lib/company";
+import { useEffect, useState } from "react";
 
 interface StatusBarProps {
   role: string;
@@ -20,6 +21,17 @@ function isLocalBase(base: string): boolean {
 
 export function StatusBar({ role, base, online, clients = 0 }: StatusBarProps) {
   const isServer = isLocalBase(base);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.version) setUpdateVersion(detail.version);
+    };
+    window.addEventListener("cygnus:update-available", handler);
+    return () => window.removeEventListener("cygnus:update-available", handler);
+  }, []);
+
   return (
     <footer className="flex items-center h-6 px-4 border-t border-border bg-muted/30 text-[10px] text-muted-foreground select-none shrink-0">
       <span>Cygnus Jewel Suite v0.1</span>
@@ -27,6 +39,14 @@ export function StatusBar({ role, base, online, clients = 0 }: StatusBarProps) {
       <span>{getCompany().name?.trim() || "Main Showroom"}</span>
       <span className="mx-2">•</span>
       <span className="capitalize">{role || "—"}</span>
+      {updateVersion && (
+        <>
+          <span className="mx-2">•</span>
+          <span className="px-1.5 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-pulse" title="Go to Settings → General to update">
+            Update v{updateVersion} available
+          </span>
+        </>
+      )}
       <span className="ml-auto flex items-center gap-3">
         <span
           className={

@@ -441,9 +441,256 @@ fn build_router(state: AppState) -> Router {
         .route("/day-close/stock/expected", get(get_stock_expected))
         .route("/day-close/stock/tag-save", post(tag_save_stock_count))
         .route("/day-sessions", get(list_day_sessions))
+        // ---- OTA Update proxy (fetches from private GitHub Releases) ----
+        .route("/api/update/:target/:arch/:current_version", get(update_check))
+        .route("/api/update/download", get(update_download))
         // LAN desktop/web clients call this API cross-origin; auth is via bearer token.
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
+}
+
+// ===================== OTA Update proxy (private GitHub Releases) =====================
+
+/// Proxies update check requests to GitHub Releases API.
+///
+/// The desktop app's Tauri updater calls:
+///   GET /api/update/{target}/{arch}/{current_version}
+///
+/// This handler fetches the `latest.json` asset from the latest GitHub Release
+/// using a server-side GitHub PAT (env `GITHUB_UPDATE_TOKEN`), and returns the
+/// Tauri updater response format:
+///   - 200 + JSON {version, url, signature, notes, pub_date} if update available
+///   - 204 No Content if already on latest
+///
+/// The download URLs inside `latest.json` point to GitHub release assets (private).
+/// We rewrite them to proxy through this server so the client never needs a token.
+async fn update_check(
+    headers: axum::http::HeaderMap,
+    Path((target, arch, current_version)): Path<(String, String, String)>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    use axum::http::header;
+
+    // Read config from env
+    let token = env::var("GITHUB_UPDATE_TOKEN").unwrap_or_default();
+    let repo = env::var("GITHUB_UPDATE_REPO")
+        .unwrap_or_else(|_| "krishnapraveenz/cygnus-jewel-suite".to_string());
+
+    if token.is_empty() {
+        // No token configured — updates disabled on this server
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
+    // Fetch latest release from GitHub API
+    let client = reqwest::Client::new();
+    let releases_url = format!(
+        "https://api.github.com/repos/{}/releases/latest",
+        repo
+    );
+
+    let gh_resp = client
+        .get(&releases_url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "Cygnus-Update-Server/1.0")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("GitHub API error: {e}")))?;
+
+    if !gh_resp.status().is_success() {
+        let status = gh_resp.status();
+        let body = gh_resp.text().await.unwrap_or_default();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("GitHub API returned {status}: {body}"),
+        ));
+    }
+
+    let release: Value = gh_resp
+        .json()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Parse error: {e}")))?;
+
+    // Find the latest.json asset in the release
+    let assets = release["assets"].as_array().ok_or_else(|| {
+        (StatusCode::BAD_GATEWAY, "No assets in release".into())
+    })?;
+
+    let latest_json_asset = assets.iter().find(|a| {
+        a["name"].as_str().map(|n| n == "latest.json").unwrap_or(false)
+    });
+
+    let latest_json_url = match latest_json_asset {
+        Some(asset) => asset["url"].as_str().unwrap_or_default().to_string(),
+        None => {
+            // No latest.json in the release — cannot serve updates
+            return Ok(StatusCode::NO_CONTENT.into_response());
+        }
+    };
+
+    // Download the latest.json content from the asset
+    let json_resp = client
+        .get(&latest_json_url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Accept", "application/octet-stream")
+        .header("User-Agent", "Cygnus-Update-Server/1.0")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Asset fetch error: {e}")))?;
+
+    let latest: Value = json_resp
+        .json()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("latest.json parse error: {e}")))?;
+
+    // Compare versions: if latest <= current, return 204
+    let latest_version = latest["version"]
+        .as_str()
+        .unwrap_or("0.0.0")
+        .trim_start_matches('v');
+    let current = current_version.trim_start_matches('v');
+
+    if !is_newer(latest_version, current) {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
+    // Find the platform entry: key is "{target}-{arch}"
+    let platform_key = format!("{}-{}", target, arch);
+    let platform = &latest["platforms"][&platform_key];
+
+    if platform.is_null() {
+        // No build for this platform in the release
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
+    let signature = platform["signature"].as_str().unwrap_or_default();
+    let download_url = platform["url"].as_str().unwrap_or_default();
+
+    if signature.is_empty() || download_url.is_empty() {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
+    // Rewrite the download URL to proxy through this server.
+    // The Tauri updater requires an absolute URL.
+    let host = headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost:8787");
+    let proxy_url = format!(
+        "http://{}/api/update/download?url={}",
+        host,
+        urlencod(download_url)
+    );
+
+    let response_body = json!({
+        "version": latest_version,
+        "url": proxy_url,
+        "signature": signature,
+        "notes": latest.get("notes").and_then(|n| n.as_str()).unwrap_or(""),
+        "pub_date": latest.get("pub_date").and_then(|d| d.as_str()).unwrap_or("")
+    });
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&response_body).unwrap(),
+    ).into_response())
+}
+
+/// Simple semver comparison (major.minor.patch). Returns true if `new` > `current`.
+fn is_newer(new: &str, current: &str) -> bool {
+    let parse = |v: &str| -> (u64, u64, u64) {
+        let parts: Vec<u64> = v.split('.').filter_map(|p| p.parse().ok()).collect();
+        (
+            parts.first().copied().unwrap_or(0),
+            parts.get(1).copied().unwrap_or(0),
+            parts.get(2).copied().unwrap_or(0),
+        )
+    };
+    parse(new) > parse(current)
+}
+
+/// Minimal percent-encoding for URL query parameter values.
+fn urlencod(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
+/// Proxies the actual update binary download from GitHub (private release asset).
+/// Called by the Tauri updater after `update_check` returns a proxy URL.
+///
+/// GET /api/update/download?url=<percent-encoded GitHub asset URL>
+async fn update_download(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::body::Body;
+    use axum::http::header;
+
+    let url = params.get("url").ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, "Missing `url` parameter".to_string())
+    })?;
+
+    // Only allow downloading from GitHub
+    if !url.starts_with("https://github.com/") && !url.contains("githubusercontent.com") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only GitHub download URLs are allowed".to_string(),
+        ));
+    }
+
+    let token = env::var("GITHUB_UPDATE_TOKEN").unwrap_or_default();
+    if token.is_empty() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Update token not configured".to_string()));
+    }
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url.as_str())
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Accept", "application/octet-stream")
+        .header("User-Agent", "Cygnus-Update-Server/1.0")
+        .timeout(Duration::from_secs(300)) // 5 min for large files
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Download error: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("GitHub download returned {status}"),
+        ));
+    }
+
+    let content_length = resp.content_length();
+    let stream = resp.bytes_stream();
+
+    let mut builder = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream");
+
+    if let Some(len) = content_length {
+        builder = builder.header(header::CONTENT_LENGTH, len);
+    }
+
+    Ok(builder
+        .body(Body::from_stream(stream))
+        .unwrap())
 }
 
 // ===================== Old gold register (scrap stock) =====================

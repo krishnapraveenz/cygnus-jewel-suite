@@ -1,6 +1,6 @@
 [package]
 name = "backend"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 description = "Cygnus Jewel Suite — backend API (Axum + PostgreSQL via sqlx)."
 
@@ -17,6 +17,7 @@ argon2 = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 flate2 = "1"
 sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # Optional: embedded PostgreSQL for "server" installs. When compiled with the
 # `embedded-pg` feature and run with `--server`, the backend downloads/caches (or, with
 # the crate's `bundled` feature, embeds) a PostgreSQL 18 build and manages it itself — so

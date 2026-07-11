@@ -40,69 +40,83 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/backend${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
-  # ─── Build desktop app (Tauri bundles) ────────────────────────────────
+  # ─── Build desktop app with Tauri (signed + updater JSON) ─────────────
   desktop:
-    name: Desktop (${{ matrix.os }})
+    name: Desktop (${{ matrix.settings.os }})
     strategy:
+      fail-fast: false
       matrix:
-        include:
+        settings:
           - os: ubuntu-latest
-            bundle: deb,appimage
+            args: ""
           - os: windows-latest
-            bundle: nsis
+            args: ""
           - os: macos-latest
-            bundle: dmg
-    runs-on: ${{ matrix.os }}
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.settings.os }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Install pnpm
         run: npm install -g pnpm
+
       - name: Install frontend deps
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
+
       - name: Install Linux deps
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.settings.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: Build Tauri bundle
-        working-directory: apps/desktop
-        run: pnpm tauri build --bundles ${{ matrix.bundle }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ""
-      - name: Upload desktop artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-${{ matrix.os }}
-          path: |
-            apps/desktop/src-tauri/target/release/bundle/**/*.deb
-            apps/desktop/src-tauri/target/release/bundle/**/*.AppImage
-            apps/desktop/src-tauri/target/release/bundle/**/*.exe
-            apps/desktop/src-tauri/target/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/release/bundle/**/*.msi
 
-  # ─── Create GitHub Release with all artifacts ─────────────────────────
-  release:
-    name: Create Release
+      - name: Build Tauri app (signed)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: v__VERSION__
+          releaseName: "Cygnus Jewel Suite v__VERSION__"
+          releaseBody: "See the assets below to download and install."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.settings.args }}
+
+  # ─── Attach backend binaries to the same GitHub Release ───────────────
+  attach-backend:
+    name: Attach backend to release
     needs: [backend, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download all artifacts
+
+      - name: Download backend artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
-      - name: Display artifacts
-        run: find artifacts/ -type f | head -30
-      - name: Create GitHub Release
+          path: backend-artifacts/
+          pattern: backend-*
+
+      - name: Get release tag
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload backend binaries to release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          tag_name: ${{ steps.tag.outputs.tag }}
           files: |
-            artifacts/**/*
+            backend-artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

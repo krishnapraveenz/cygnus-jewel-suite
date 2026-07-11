@@ -7,6 +7,7 @@ import { DialogHost } from "@/lib/dialog";
 import { setTickerItems } from "@/lib/ticker";
 import { applyServerModules } from "@/lib/modules";
 import { applyCompany } from "@/lib/company";
+import { checkForUpdate } from "@/lib/updater";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { StatusBar } from "@/components/layout/StatusBar";
@@ -125,6 +126,18 @@ function Shell({ role, onLogout }: { role: string; onLogout: () => void }) {
         }
       })
       .catch(() => {});
+  }, []);
+
+  // Silent update check on launch (non-blocking, no UI unless update found)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      checkForUpdate().then((s) => {
+        if (s.available) {
+          window.dispatchEvent(new CustomEvent("cygnus:update-available", { detail: s }));
+        }
+      });
+    }, 5000); // delay 5s after launch to not slow down startup
+    return () => clearTimeout(t);
   }, []);
 
   async function handleLogout() {
