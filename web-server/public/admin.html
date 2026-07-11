@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cygnus Admin — License Management</title>
+  <link rel="icon" href="/logo.png" type="image/png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #0f0f17;
+      --card: #13131d;
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text: #f0f0f5;
+      --text-dim: #8b8b9e;
+      --gold: #d4a853;
+      --gold-light: #f0d48a;
+      --green: #10b981;
+      --red: #ef4444;
+      --orange: #f59e0b;
+      --purple: #8b5cf6;
+      --font: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ─── Auth Gate ─────────────────────────── */
+    .auth-gate {
+      display: flex; align-items: center; justify-content: center; min-height: 100vh;
+      padding: 24px;
+    }
+    .auth-box {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 48px 40px; width: 100%; max-width: 400px; text-align: center;
+    }
+    .auth-box img { width: 48px; height: 48px; border-radius: 12px; margin-bottom: 20px; }
+    .auth-box h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+    .auth-box p { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 28px; }
+    .auth-box input {
+      width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-size: 0.88rem; font-family: var(--mono);
+      outline: none; margin-bottom: 16px; text-align: center; letter-spacing: 1px;
+    }
+    .auth-box input:focus { border-color: var(--gold); }
+    .auth-error { color: var(--red); font-size: 0.8rem; margin-bottom: 12px; display: none; }
+
+    /* ─── Layout ────────────────────────────── */
+    .app { display: none; }
+    .topbar {
+      height: 56px; border-bottom: 1px solid var(--border); display: flex;
+      align-items: center; justify-content: space-between; padding: 0 28px;
+      background: var(--surface); position: sticky; top: 0; z-index: 50;
+    }
+    .topbar-brand { display: flex; align-items: center; gap: 10px; }
+    .topbar-brand img { width: 28px; height: 28px; border-radius: 7px; }
+    .topbar-brand span { font-weight: 700; font-size: 0.88rem; }
+    .topbar-brand small { color: var(--text-dim); font-size: 0.72rem; margin-left: 8px; font-weight: 400; }
+    .topbar-actions { display: flex; align-items: center; gap: 12px; }
+
+    .main { max-width: 1200px; margin: 0 auto; padding: 32px 28px; }
+
+    /* ─── Cards & Stats ─────────────────────── */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px;
+    }
+    .stat-card .label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+    .stat-card .value { font-size: 1.8rem; font-weight: 800; }
+    .stat-card .value.gold { color: var(--gold); }
+    .stat-card .value.green { color: var(--green); }
+    .stat-card .value.purple { color: var(--purple); }
+    .stat-card .value.orange { color: var(--orange); }
+
+    /* ─── Sections ──────────────────────────── */
+    .panel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      margin-bottom: 24px; overflow: hidden;
+    }
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px; border-bottom: 1px solid var(--border);
+    }
+    .panel-header h2 { font-size: 0.95rem; font-weight: 700; }
+    .panel-body { padding: 24px; }
+
+    /* ─── Generate Form ─────────────────────── */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-row.full { grid-template-columns: 1fr; }
+    .field label { display: block; font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; font-weight: 600; }
+    .field input, .field select {
+      width: 100%; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-size: 0.85rem; font-family: var(--font);
+      outline: none; transition: border-color 0.2s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--gold); }
+    .field select { appearance: none; cursor: pointer; }
+
+    /* ─── Buttons ───────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px;
+      border-radius: 7px; font-size: 0.82rem; font-weight: 600; border: none;
+      cursor: pointer; transition: all 0.2s; font-family: var(--font);
+    }
+    .btn-gold { background: var(--gold); color: #000; }
+    .btn-gold:hover { background: var(--gold-light); }
+    .btn-sm { padding: 6px 12px; font-size: 0.75rem; border-radius: 5px; }
+    .btn-danger { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+    .btn-danger:hover { background: rgba(239,68,68,0.2); }
+    .btn-ghost { background: rgba(255,255,255,0.04); color: var(--text-dim); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+    /* ─── Generated Key Display ──────────────── */
+    .key-display {
+      margin-top: 20px; padding: 20px; border-radius: 10px;
+      background: rgba(212,168,83,0.05); border: 1px solid rgba(212,168,83,0.2);
+      display: none;
+    }
+    .key-display .key-value {
+      font-family: var(--mono); font-size: 1.3rem; font-weight: 500;
+      color: var(--gold); letter-spacing: 2px; margin-bottom: 8px;
+    }
+    .key-display .key-meta { font-size: 0.78rem; color: var(--text-dim); }
+    .key-display .copy-btn {
+      margin-top: 12px; background: rgba(255,255,255,0.06); color: var(--text);
+      border: 1px solid var(--border); padding: 6px 14px; border-radius: 5px;
+      font-size: 0.75rem; cursor: pointer; font-family: var(--font);
+    }
+    .key-display .copy-btn:hover { background: rgba(255,255,255,0.1); }
+
+    /* ─── Table ─────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th { text-align: left; padding: 10px 14px; color: var(--text-dim); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid var(--border); }
+    td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 100px; font-size: 0.68rem;
+      font-weight: 600; letter-spacing: 0.3px;
+    }
+    .badge-active { background: rgba(16,185,129,0.1); color: var(--green); }
+    .badge-inactive { background: rgba(139,92,246,0.1); color: var(--purple); }
+    .badge-revoked { background: rgba(239,68,68,0.1); color: var(--red); }
+    .badge-expired { background: rgba(245,158,11,0.1); color: var(--orange); }
+    .mono { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.5px; }
+    .text-dim { color: var(--text-dim); }
+    .text-sm { font-size: 0.75rem; }
+
+    /* ─── Responsive ────────────────────────── */
+    @media (max-width: 800px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .form-row { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 500px) {
+      .stats-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Auth Gate -->
+  <div class="auth-gate" id="auth-gate">
+    <div class="auth-box">
+      <img src="/logo.png" alt="Cygnus">
+      <h1>Admin Panel</h1>
+      <p>Enter your admin secret key to access license management.</p>
+      <div class="auth-error" id="auth-error">Invalid admin key</div>
+      <input type="password" id="admin-key-input" placeholder="Admin secret key" onkeydown="if(event.key==='Enter')doLogin()" />
+      <button class="btn btn-gold" style="width:100%" onclick="doLogin()">Unlock</button>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app">
+    <div class="topbar">
+      <div class="topbar-brand">
+        <img src="/logo.png" alt="Cygnus">
+        <span>Cygnus Admin</span>
+        <small>License Management</small>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" onclick="loadLicenses()">↻ Refresh</button>
+        <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
+      </div>
+    </div>
+
+    <div class="main">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card"><div class="label">Total Licenses</div><div class="value gold" id="st-total">0</div></div>
+        <div class="stat-card"><div class="label">Active</div><div class="value green" id="st-active">0</div></div>
+        <div class="stat-card"><div class="label">Activations</div><div class="value purple" id="st-activations">0</div></div>
+        <div class="stat-card"><div class="label">Revoked</div><div class="value orange" id="st-revoked">0</div></div>
+      </div>
+
+      <!-- Generate -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Generate New License</h2>
+        </div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="field">
+              <label>Licensee (Shop Name) *</label>
+              <input type="text" id="gen-licensee" placeholder="e.g. Shri Ganesh Jewellers" />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input type="email" id="gen-email" placeholder="owner@shop.com" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Max Terminals</label>
+              <select id="gen-terminals">
+                <option value="1">1 PC</option>
+                <option value="2">2 PCs</option>
+                <option value="3" selected>3 PCs</option>
+                <option value="5">5 PCs</option>
+                <option value="10">10 PCs</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Plan</label>
+              <select id="gen-plan">
+                <option value="standard">Standard</option>
+                <option value="premium">Premium</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Expires At (leave blank for perpetual)</label>
+              <input type="date" id="gen-expires" />
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <button class="btn btn-gold" onclick="generateLicense()">✦ Generate License Key</button>
+            </div>
+          </div>
+          <div class="key-display" id="key-display">
+            <div class="key-value" id="key-value"></div>
+            <div class="key-meta" id="key-meta"></div>
+            <button class="copy-btn" onclick="copyKey()">📋 Copy to clipboard</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Licenses Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>All Licenses</h2>
+          <span class="text-dim text-sm" id="table-count"></span>
+        </div>
+        <div class="panel-body" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>License Key</th>
+                  <th>Licensee</th>
+                  <th>Plan</th>
+                  <th>Terminals</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="licenses-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let ADMIN_KEY = "";
+    let licenses = [];
+
+    function doLogin() {
+      const key = document.getElementById("admin-key-input").value.trim();
+      if (!key) return;
+      ADMIN_KEY = key;
+      // Test the key by fetching licenses
+      fetch("/api/licenses", { headers: { "x-admin-key": key } })
+        .then(r => {
+          if (!r.ok) throw new Error("unauthorized");
+          return r.json();
+        })
+        .then(data => {
+          licenses = data;
+          document.getElementById("auth-gate").style.display = "none";
+          document.getElementById("app").style.display = "block";
+          renderAll();
+        })
+        .catch(() => {
+          const err = document.getElementById("auth-error");
+          err.style.display = "block";
+          err.textContent = "Invalid admin key. Try again.";
+        });
+    }
+
+    function doLogout() {
+      ADMIN_KEY = "";
+      document.getElementById("auth-gate").style.display = "flex";
+      document.getElementById("app").style.display = "none";
+      document.getElementById("admin-key-input").value = "";
+    }
+
+    function loadLicenses() {
+      fetch("/api/licenses", { headers: { "x-admin-key": ADMIN_KEY } })
+        .then(r => r.json())
+        .then(data => { licenses = data; renderAll(); })
+        .catch(() => {});
+    }
+
+    function renderAll() {
+      // Stats
+      const total = licenses.length;
+      const active = licenses.filter(l => l.activated && !l.revoked).length;
+      const activations = licenses.reduce((sum, l) => sum + (l.activations?.length || 0), 0);
+      const revoked = licenses.filter(l => l.revoked).length;
+      document.getElementById("st-total").textContent = total;
+      document.getElementById("st-active").textContent = active;
+      document.getElementById("st-activations").textContent = activations;
+      document.getElementById("st-revoked").textContent = revoked;
+      document.getElementById("table-count").textContent = `${total} license${total !== 1 ? "s" : ""}`;
+
+      // Table
+      const tbody = document.getElementById("licenses-tbody");
+      if (licenses.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-dim)">No licenses yet. Generate one above.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = licenses.slice().reverse().map(l => {
+        const status = getStatus(l);
+        const created = new Date(l.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+        const terminalsUsed = l.activations?.length || 0;
+        return `<tr>
+          <td class="mono">${l.key}</td>
+          <td><strong>${l.licensee}</strong>${l.email ? `<br><span class="text-dim text-sm">${l.email}</span>` : ""}</td>
+          <td style="text-transform:capitalize">${l.plan}</td>
+          <td>${terminalsUsed} / ${l.max_terminals}</td>
+          <td><span class="badge badge-${status.cls}">${status.label}</span></td>
+          <td class="text-dim">${created}</td>
+          <td>${!l.revoked ? `<button class="btn btn-danger btn-sm" onclick="revokeLicense('${l.id}')">Revoke</button>` : `<span class="text-dim text-sm">—</span>`}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function getStatus(l) {
+      if (l.revoked) return { label: "Revoked", cls: "revoked" };
+      if (l.expires_at && new Date(l.expires_at) < new Date()) return { label: "Expired", cls: "expired" };
+      if (l.activated) return { label: "Active", cls: "active" };
+      return { label: "Unused", cls: "inactive" };
+    }
+
+    async function generateLicense() {
+      const licensee = document.getElementById("gen-licensee").value.trim();
+      if (!licensee) { alert("Licensee name is required"); return; }
+
+      const body = {
+        licensee,
+        email: document.getElementById("gen-email").value.trim(),
+        max_terminals: parseInt(document.getElementById("gen-terminals").value),
+        plan: document.getElementById("gen-plan").value,
+        expires_at: document.getElementById("gen-expires").value || null,
+      };
+
+      const r = await fetch("/api/licenses/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-key": ADMIN_KEY },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+
+      if (r.ok && data.success) {
+        const kd = document.getElementById("key-display");
+        kd.style.display = "block";
+        document.getElementById("key-value").textContent = data.license.key;
+        document.getElementById("key-meta").textContent = `${data.license.licensee} • ${data.license.plan} • ${data.license.max_terminals} terminals • ${data.license.expires_at ? "Expires " + data.license.expires_at : "Perpetual"}`;
+        // Clear form
+        document.getElementById("gen-licensee").value = "";
+        document.getElementById("gen-email").value = "";
+        document.getElementById("gen-expires").value = "";
+        // Reload table
+        loadLicenses();
+      } else {
+        alert(data.error || "Generation failed");
+      }
+    }
+
+    function copyKey() {
+      const key = document.getElementById("key-value").textContent;
+      navigator.clipboard.writeText(key).then(() => {
+        const btn = document.querySelector(".copy-btn");
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => btn.textContent = "📋 Copy to clipboard", 2000);
+      });
+    }
+
+    async function revokeLicense(id) {
+      if (!confirm("Revoke this license? The customer will no longer be able to use it.")) return;
+      const r = await fetch(`/api/licenses/${id}/revoke`, {
+        method: "POST",
+        headers: { "x-admin-key": ADMIN_KEY },
+      });
+      if (r.ok) loadLicenses();
+      else alert("Revoke failed");
+    }
+  </script>
+</body>
+</html>

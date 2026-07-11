@@ -19,3 +19,7 @@ src-tauri/target/
 Thumbs.db
 .idea/
 .vscode/
+Admin panel.txt
+web-server/data/
+web-server/ecosystem.config.js
+web-server/node_modules/

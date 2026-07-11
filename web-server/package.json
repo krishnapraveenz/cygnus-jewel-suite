@@ -1,0 +1,14 @@
+{
+  "name": "cygnus-jewel-suite-web",
+  "version": "1.0.0",
+  "description": "Cygnus Jewel Suite - Licensing, OTA Updates & Landing Page",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "crypto": "^1.0.1"
+  }
+}
